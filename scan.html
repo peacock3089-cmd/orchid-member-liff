@@ -2,45 +2,42 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>掃描報到</title>
 <style>
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif; background: #f5f0f7; color: #222; }
-  #main { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 16px; text-align: center; }
-  h1 { font-size: 24px; margin: 0 0 8px; color: #6b3a86; }
-  #status { font-size: 16px; color: #666; min-height: 24px; margin-bottom: 16px; }
-  #cam { position: relative; width: 100%; max-width: 420px; aspect-ratio: 3 / 4; background: #000; border-radius: 16px; overflow: hidden; display: none; margin-bottom: 16px; }
-  #cam video { width: 100%; height: 100%; object-fit: cover; }
-  #cam .frame { position: absolute; inset: 18%; border: 4px solid rgba(255, 255, 255, .85); border-radius: 16px; }
-  #scanBtn { font-size: 26px; font-weight: bold; padding: 28px 40px; width: 100%; max-width: 360px; border: 0; border-radius: 18px; background: #7a3e96; color: #fff; }
-  #scanBtn:disabled { background: #bbb; }
-  #result { position: fixed; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; color: #fff; }
-  #result.welcome { background: #1f9d55; display: flex; }
-  #result.manual { background: #d63031; display: flex; }
-  #result.wait { background: #555; display: flex; }
-  #big { font-size: 72px; font-weight: 900; margin-bottom: 20px; }
-  #info { font-size: 24px; line-height: 1.6; margin-bottom: 12px; }
-  #why { font-size: 20px; background: rgba(0, 0, 0, .2); padding: 8px 14px; border-radius: 10px; margin-bottom: 28px; }
-  #why:empty { display: none; }
-  #againBtn { font-size: 24px; font-weight: bold; padding: 22px 36px; width: 100%; max-width: 360px; border: 3px solid #fff; border-radius: 18px; background: transparent; color: #fff; }
-  #result.wait #againBtn { display: none; }
-  #code { font-size: 12px; opacity: .7; margin-top: 16px; }
+  html, body { margin: 0; height: 100%; overflow: hidden; font-family: -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif; background: #000; }
+  /* 上 3/4：相機一直開著 */
+  #cam { position: fixed; top: 0; left: 0; right: 0; height: 75vh; height: 75dvh; background: #111; overflow: hidden; }
+  #cam video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  #cam .frame { position: absolute; left: 50%; top: 50%; width: 62vmin; height: 62vmin; transform: translate(-50%, -50%); border: 4px solid rgba(255, 255, 255, .85); border-radius: 18px; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .25); }
+  #cam .hint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #ddd; font-size: 18px; text-align: center; padding: 24px; }
+  /* 下 1/4：結果 */
+  #panel { position: fixed; left: 0; right: 0; bottom: 0; height: 25vh; height: 25dvh; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #fff; background: #6b3a86; transition: background .15s; }
+  #panel.ready { background: #6b3a86; }
+  #panel.wait { background: #555; }
+  #panel.welcome { background: #1f9d55; }
+  #panel.manual { background: #d63031; }
+  #big { font-size: 34px; font-weight: 900; line-height: 1.15; }
+  #line2 { font-size: 18px; margin-top: 6px; line-height: 1.35; }
+  #line3 { font-size: 15px; margin-top: 4px; opacity: .9; line-height: 1.3; }
+  #line2:empty, #line3:empty { display: none; }
+  #startBtn { margin-top: 8px; font-size: 22px; font-weight: bold; padding: 14px 28px; border: 3px solid #fff; border-radius: 14px; background: transparent; color: #fff; }
+  #startBtn[hidden] { display: none; }
+  #startBtn:disabled { opacity: .4; }
 </style>
 </head>
 <body>
-<div id="main">
-  <h1>🌸 會員掃描報到</h1>
-  <div id="status">載入中…</div>
-  <div id="cam"><video id="video" playsinline muted></video><div class="frame"></div></div>
-  <button id="scanBtn" disabled>📷 開始掃描</button>
+<div id="cam">
+  <video id="video" playsinline muted></video>
+  <div class="frame" id="frame" hidden></div>
+  <div class="hint" id="hint">🌸 會員掃描報到<br><br>載入中…</div>
 </div>
-<div id="result">
-  <div id="big"></div>
-  <div id="info"></div>
-  <div id="why"></div>
-  <button id="againBtn">📷 繼續掃描</button>
-  <div id="code"></div>
+<div id="panel" class="ready">
+  <div id="big">會員掃描報到</div>
+  <div id="line2">載入中…</div>
+  <div id="line3"></div>
+  <button id="startBtn" disabled>📷 開始掃描</button>
 </div>
 
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
@@ -51,7 +48,14 @@ const LIFF_ID = '2012266558-10cmX0Pz';
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbxMiGQCBah3hom3J7u0Do51BG-7dMpe0ZKSjb1sriWF-htasK_mkT94nYoU2B8OLeQP/exec';
 
 const $ = (id) => document.getElementById(id);
-const status = (s) => { $('status').textContent = s; };
+
+// 下方結果區：kind＝ready／wait／welcome／manual
+function panel(kind, big, line2, line3) {
+  $('panel').className = kind;
+  $('big').textContent = big || '';
+  $('line2').textContent = line2 || '';
+  $('line3').textContent = line3 || '';
+}
 
 function env() {
   let os = '', line = '', liffVer = '';
@@ -88,114 +92,109 @@ function report(msg) {
 }
 window.addEventListener('error', (e) => report('程式錯誤：' + e.message + ' @' + e.filename + ':' + e.lineno));
 
-function show(kind, big, info, why, code) {
-  $('result').className = kind;
-  $('big').textContent = big;
-  $('info').innerHTML = info || '';
-  $('why').textContent = why || '';
-  $('code').textContent = code ? '代碼 ' + code : '';
-  if (kind !== 'wait' && navigator.vibrate) navigator.vibrate(kind === 'welcome' ? 80 : [200, 100, 200]);
+function buzz(ok) {
+  if (navigator.vibrate) navigator.vibrate(ok ? 80 : [200, 100, 200]);
 }
 
-const esc = (s) => String(s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-
-// 掃到 QR → 問 GAS → 顯示結果
+// 掃到 QR → 問 GAS → 下方顯示結果（相機照開，結果出來就能掃下一位）
 async function checkin(value) {
   const rid = newRid();
-  show('wait', '查詢中…', '', '', '');
+  panel('wait', '查詢中…', '', '');
   try {
     const out = await call('checkin', { code: value }, rid);
     if (out.ok) {
       const m = out.member;
-      const info = m ? esc(m.n) + '<br>會員編號：' + esc(m.id) + '<br>' + esc(m.t) + (m.c ? '<br>' + esc(m.c) : '') : '';
-      if (out.result === 'welcome') show('welcome', '歡迎', info, '', '');
-      else show('manual', '專人處理', info, out.reason, rid);
+      const who = m ? [m.id, m.t, m.c].filter(Boolean).join('｜') : '';
+      if (out.result === 'welcome') {
+        panel('welcome', '✅ 歡迎　' + (m ? m.n : ''), who, '');
+        buzz(true);
+      } else {
+        panel('manual', '❌ 專人處理', out.reason, (m ? m.n + '｜' + who + '　' : '') + '代碼 ' + rid);
+        buzz(false);
+      }
     } else if (out.error === 'token') {
       liff.logout(); liff.login(); // 登入過期 → 重新登入
+      return;
     } else if (out.error === 'not_staff') {
-      show('manual', '專人處理', '', '您不在現場人員名單，無法掃描', rid);
+      panel('manual', '❌ 專人處理', '您不在現場人員名單，無法掃描', '代碼 ' + rid);
+      buzz(false);
     } else {
-      show('manual', '專人處理', '', '系統錯誤，請再掃一次', rid);
+      panel('manual', '❌ 專人處理', '系統錯誤，請再掃一次', '代碼 ' + rid);
+      buzz(false);
     }
   } catch (err) {
     report('報到請求失敗：' + err);
-    show('manual', '專人處理', '', '網路連線失敗，請再掃一次', rid);
+    panel('manual', '❌ 專人處理', '網路連線失敗，請再掃一次', '代碼 ' + rid);
+    buzz(false);
   }
+  if (useLine) { $('startBtn').textContent = '📷 掃描下一位'; $('startBtn').hidden = false; }
+  else busy = false; // 繼續偵測下一張
 }
 
-// ---------- 相機：只開一次、頁面開著就一直用同一個畫面（不會每次都問權限） ----------
+// ---------- 相機：只開一次，一直開著持續偵測（不用按「繼續掃描」，也不會每次問權限） ----------
 const video = $('video');
 const canvas = document.createElement('canvas');
 const ctx = canvas.getContext('2d', { willReadFrequently: true });
-let stream = null;
-let scanning = false;
+let busy = false;     // 正在問 GAS 時先不偵測
 let lastCode = '';
-let lastAt = 0;
+let lastSeen = 0;     // 同一張 QR 還在鏡頭前就不重複送；移開 3 秒後再出現才算新的一次
+const SAME_GAP = 3000;
 
 async function startCamera() {
-  stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 960 } }, audio: false });
+  const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 960 } }, audio: false });
   video.srcObject = stream;
   await video.play();
-  $('cam').style.display = 'block';
-  $('scanBtn').style.display = 'none';
-  status('請把會員 QR Code 對準框內');
+  $('hint').hidden = true;
+  $('frame').hidden = false;
+  $('startBtn').hidden = true;
+  panel('ready', '請把 QR Code 對準框內', '掃到會自動判斷，接著直接掃下一位', '');
+  tick();
 }
 
 function tick() {
-  if (!scanning) return;
-  if (video.readyState >= 2 && video.videoWidth) {
+  if (!busy && video.readyState >= 2 && video.videoWidth) {
     const w = 480;
     const h = Math.round(video.videoHeight * w / video.videoWidth);
     canvas.width = w; canvas.height = h;
     ctx.drawImage(video, 0, 0, w, h);
-    const img = ctx.getImageData(0, 0, w, h);
-    const qr = jsQR(img.data, w, h, { inversionAttempts: 'dontInvert' });
-    // 剛按「繼續掃描」時鏡頭可能還對著上一張 → 同一張 2.5 秒內不重掃
-    if (qr && qr.data && !(qr.data === lastCode && Date.now() - lastAt < 2500)) {
-      scanning = false;
+    const qr = jsQR(ctx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'dontInvert' });
+    if (qr && qr.data) {
+      const now = Date.now();
+      const same = qr.data === lastCode && now - lastSeen < SAME_GAP;
       lastCode = qr.data;
-      lastAt = Date.now();
-      checkin(qr.data);
-      return;
+      lastSeen = now;
+      if (!same) {
+        busy = true;
+        checkin(qr.data);
+      }
     }
   }
   setTimeout(tick, 120);
 }
 
-function resume() {
-  $('result').className = '';
-  lastAt = Date.now();
-  scanning = true;
-  tick();
-}
-
-// 相機開不了（舊手機、拒絕權限）→ 改用 LINE 內建掃描器
+// 相機開不了（舊手機、拒絕權限）→ 改用 LINE 內建掃描器（每次要按按鈕）
+let useLine = false;
 async function scanWithLine() {
   try {
     const r = await liff.scanCodeV2();
-    if (r && r.value) checkin(r.value);
+    if (r && r.value) { $('startBtn').hidden = true; checkin(r.value); }
   } catch (err) {
     report('scanCodeV2 失敗：' + err);
-    status('無法開啟相機：' + (err.message || err));
+    panel('manual', '無法開啟相機', String(err.message || err), '');
   }
 }
 
-let useLine = false;
-$('scanBtn').onclick = async () => {
+$('startBtn').onclick = async () => {
   if (useLine) return scanWithLine();
   try {
     await startCamera();
-    resume();
   } catch (err) {
     report('getUserMedia 失敗：' + (err.name || '') + ' ' + (err.message || err));
     useLine = true;
-    status(err && err.name === 'NotAllowedError' ? '相機權限被拒絕，改用 LINE 掃描器' : '改用 LINE 掃描器');
-    $('scanBtn').textContent = '📷 掃描會員條碼';
+    $('hint').textContent = err && err.name === 'NotAllowedError' ? '相機權限被拒絕，改用 LINE 掃描器' : '改用 LINE 掃描器';
+    $('startBtn').textContent = '📷 掃描會員條碼';
     scanWithLine();
   }
-};
-$('againBtn').onclick = () => {
-  if (useLine) { $('result').className = ''; scanWithLine(); } else resume();
 };
 
 // 頁面開著時每 4 分鐘叫醒 GAS 一次（保持暖機、名冊快取不過期 → 掃描比較快）
@@ -207,28 +206,29 @@ setInterval(() => {
   try {
     await liff.init({ liffId: LIFF_ID });
   } catch (err) {
-    status('載入失敗，請關掉重開：' + (err.message || err));
+    panel('manual', '載入失敗', '請關掉重開', String(err.message || err));
     report('liff.init 失敗：' + err);
     return;
   }
   if (!liff.isLoggedIn()) { liff.login(); return; }
-  if (!liff.isInClient()) { status('請在手機 LINE 裡開啟這個頁面'); return; }
-  status('確認身分中…');
+  if (!liff.isInClient()) { panel('manual', '請在手機 LINE 裡開啟', '', ''); return; }
+  panel('ready', '會員掃描報到', '確認身分中…', '');
   try {
     const out = await call('staff_check');
     if (out.error === 'token') { liff.logout(); liff.login(); return; }
-    if (!out.staff) { status('您不在現場人員名單，請洽管理者開通'); return; }
+    if (!out.staff) { panel('manual', '無法使用', '您不在現場人員名單，請洽管理者開通', ''); return; }
   } catch (err) {
     report('身分確認失敗：' + err);
-    status('網路連線失敗，請關掉重開');
+    panel('manual', '網路連線失敗', '請關掉重開', '');
     return;
   }
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof jsQR !== 'function') {
     useLine = true;
-    $('scanBtn').textContent = '📷 掃描會員條碼';
+    $('startBtn').textContent = '📷 掃描會員條碼';
   }
-  status('按下按鈕開始掃描');
-  $('scanBtn').disabled = false;
+  $('hint').innerHTML = '🌸 會員掃描報到<br><br>按下方按鈕開啟相機';
+  panel('ready', '準備好了', '', '');
+  $('startBtn').disabled = false;
 })();
 </script>
 </body>
