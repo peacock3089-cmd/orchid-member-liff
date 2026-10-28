@@ -7,9 +7,12 @@
 <style>
   * { box-sizing: border-box; }
   body { margin: 0; font-family: -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif; background: #f5f0f7; color: #222; }
-  #main { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; }
-  h1 { font-size: 26px; margin: 0 0 8px; color: #6b3a86; }
-  #status { font-size: 16px; color: #666; min-height: 24px; margin-bottom: 24px; }
+  #main { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 16px; text-align: center; }
+  h1 { font-size: 24px; margin: 0 0 8px; color: #6b3a86; }
+  #status { font-size: 16px; color: #666; min-height: 24px; margin-bottom: 16px; }
+  #cam { position: relative; width: 100%; max-width: 420px; aspect-ratio: 3 / 4; background: #000; border-radius: 16px; overflow: hidden; display: none; margin-bottom: 16px; }
+  #cam video { width: 100%; height: 100%; object-fit: cover; }
+  #cam .frame { position: absolute; inset: 18%; border: 4px solid rgba(255, 255, 255, .85); border-radius: 16px; }
   #scanBtn { font-size: 26px; font-weight: bold; padding: 28px 40px; width: 100%; max-width: 360px; border: 0; border-radius: 18px; background: #7a3e96; color: #fff; }
   #scanBtn:disabled { background: #bbb; }
   #result { position: fixed; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; color: #fff; }
@@ -21,6 +24,7 @@
   #why { font-size: 20px; background: rgba(0, 0, 0, .2); padding: 8px 14px; border-radius: 10px; margin-bottom: 28px; }
   #why:empty { display: none; }
   #againBtn { font-size: 24px; font-weight: bold; padding: 22px 36px; width: 100%; max-width: 360px; border: 3px solid #fff; border-radius: 18px; background: transparent; color: #fff; }
+  #result.wait #againBtn { display: none; }
   #code { font-size: 12px; opacity: .7; margin-top: 16px; }
 </style>
 </head>
@@ -28,7 +32,8 @@
 <div id="main">
   <h1>🌸 會員掃描報到</h1>
   <div id="status">載入中…</div>
-  <button id="scanBtn" disabled>📷 掃描會員條碼</button>
+  <div id="cam"><video id="video" playsinline muted></video><div class="frame"></div></div>
+  <button id="scanBtn" disabled>📷 開始掃描</button>
 </div>
 <div id="result">
   <div id="big"></div>
@@ -39,8 +44,9 @@
 </div>
 
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <script>
-// 設定：LIFF ID 與 GAS 網址（部署時填）
+// 設定：LIFF ID 與 GAS 網址
 const LIFF_ID = '2012266558-10cmX0Pz';
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbxMiGQCBah3hom3J7u0Do51BG-7dMpe0ZKSjb1sriWF-htasK_mkT94nYoU2B8OLeQP/exec';
 
@@ -88,22 +94,13 @@ function show(kind, big, info, why, code) {
   $('info').innerHTML = info || '';
   $('why').textContent = why || '';
   $('code').textContent = code ? '代碼 ' + code : '';
-  if (navigator.vibrate) navigator.vibrate(kind === 'welcome' ? 80 : [200, 100, 200]);
+  if (kind !== 'wait' && navigator.vibrate) navigator.vibrate(kind === 'welcome' ? 80 : [200, 100, 200]);
 }
 
 const esc = (s) => String(s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-async function scan() {
-  let value = '';
-  try {
-    const r = await liff.scanCodeV2();
-    value = (r && r.value) || '';
-  } catch (err) {
-    report('scanCodeV2 失敗：' + err);
-    status('無法開啟相機：' + (err.message || err));
-    return;
-  }
-  if (!value) return; // 使用者按取消
+// 掃到 QR → 問 GAS → 顯示結果
+async function checkin(value) {
   const rid = newRid();
   show('wait', '查詢中…', '', '', '');
   try {
@@ -126,8 +123,85 @@ async function scan() {
   }
 }
 
-$('scanBtn').onclick = scan;
-$('againBtn').onclick = () => { $('result').className = ''; scan(); };
+// ---------- 相機：只開一次、頁面開著就一直用同一個畫面（不會每次都問權限） ----------
+const video = $('video');
+const canvas = document.createElement('canvas');
+const ctx = canvas.getContext('2d', { willReadFrequently: true });
+let stream = null;
+let scanning = false;
+let lastCode = '';
+let lastAt = 0;
+
+async function startCamera() {
+  stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 960 } }, audio: false });
+  video.srcObject = stream;
+  await video.play();
+  $('cam').style.display = 'block';
+  $('scanBtn').style.display = 'none';
+  status('請把會員 QR Code 對準框內');
+}
+
+function tick() {
+  if (!scanning) return;
+  if (video.readyState >= 2 && video.videoWidth) {
+    const w = 480;
+    const h = Math.round(video.videoHeight * w / video.videoWidth);
+    canvas.width = w; canvas.height = h;
+    ctx.drawImage(video, 0, 0, w, h);
+    const img = ctx.getImageData(0, 0, w, h);
+    const qr = jsQR(img.data, w, h, { inversionAttempts: 'dontInvert' });
+    // 剛按「繼續掃描」時鏡頭可能還對著上一張 → 同一張 2.5 秒內不重掃
+    if (qr && qr.data && !(qr.data === lastCode && Date.now() - lastAt < 2500)) {
+      scanning = false;
+      lastCode = qr.data;
+      lastAt = Date.now();
+      checkin(qr.data);
+      return;
+    }
+  }
+  setTimeout(tick, 120);
+}
+
+function resume() {
+  $('result').className = '';
+  lastAt = Date.now();
+  scanning = true;
+  tick();
+}
+
+// 相機開不了（舊手機、拒絕權限）→ 改用 LINE 內建掃描器
+async function scanWithLine() {
+  try {
+    const r = await liff.scanCodeV2();
+    if (r && r.value) checkin(r.value);
+  } catch (err) {
+    report('scanCodeV2 失敗：' + err);
+    status('無法開啟相機：' + (err.message || err));
+  }
+}
+
+let useLine = false;
+$('scanBtn').onclick = async () => {
+  if (useLine) return scanWithLine();
+  try {
+    await startCamera();
+    resume();
+  } catch (err) {
+    report('getUserMedia 失敗：' + (err.name || '') + ' ' + (err.message || err));
+    useLine = true;
+    status(err && err.name === 'NotAllowedError' ? '相機權限被拒絕，改用 LINE 掃描器' : '改用 LINE 掃描器');
+    $('scanBtn').textContent = '📷 掃描會員條碼';
+    scanWithLine();
+  }
+};
+$('againBtn').onclick = () => {
+  if (useLine) { $('result').className = ''; scanWithLine(); } else resume();
+};
+
+// 頁面開著時每 4 分鐘叫醒 GAS 一次（保持暖機、名冊快取不過期 → 掃描比較快）
+setInterval(() => {
+  if (document.visibilityState === 'visible') fetch(GAS_URL, { method: 'POST', body: '{"type":"ping"}' }).catch(() => {});
+}, 240000);
 
 (async () => {
   try {
@@ -148,6 +222,10 @@ $('againBtn').onclick = () => { $('result').className = ''; scan(); };
     report('身分確認失敗：' + err);
     status('網路連線失敗，請關掉重開');
     return;
+  }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof jsQR !== 'function') {
+    useLine = true;
+    $('scanBtn').textContent = '📷 掃描會員條碼';
   }
   status('按下按鈕開始掃描');
   $('scanBtn').disabled = false;
