@@ -109,7 +109,8 @@ async function checkin(value) {
         panel('welcome', '✅ 歡迎　' + (m ? m.n : ''), who, '');
         buzz(true);
       } else {
-        panel('manual', '❌ 專人處理', out.reason, (m ? m.n + '｜' + who + '　' : '') + '代碼 ' + rid);
+        // 格式（使用者 2026-10-29 指定）：原因／姓名｜編號｜類別；有會員資料就不顯示代碼（代碼仍記在報到紀錄）
+        panel('manual', '❌ 專人處理', out.reason, m ? [m.n, m.id, m.t].join('｜') : '代碼 ' + rid);
         buzz(false);
       }
     } else if (out.error === 'token') {
@@ -147,7 +148,7 @@ async function startCamera() {
   $('hint').hidden = true;
   $('frame').hidden = false;
   $('startBtn').hidden = true;
-  panel('ready', '請把 QR Code 對準框內', '掃到會自動判斷，接著直接掃下一位', '');
+  panel('ready', '', '', ''); // 相機開了就只留對準框，不放說明文字（使用者 2026-10-29 指定）
   tick();
 }
 
