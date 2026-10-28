@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>掃描報到</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif; background: #f5f0f7; color: #222; }
+  #main { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; }
+  h1 { font-size: 26px; margin: 0 0 8px; color: #6b3a86; }
+  #status { font-size: 16px; color: #666; min-height: 24px; margin-bottom: 24px; }
+  #scanBtn { font-size: 26px; font-weight: bold; padding: 28px 40px; width: 100%; max-width: 360px; border: 0; border-radius: 18px; background: #7a3e96; color: #fff; }
+  #scanBtn:disabled { background: #bbb; }
+  #result { position: fixed; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; color: #fff; }
+  #result.welcome { background: #1f9d55; display: flex; }
+  #result.manual { background: #d63031; display: flex; }
+  #result.wait { background: #555; display: flex; }
+  #big { font-size: 72px; font-weight: 900; margin-bottom: 20px; }
+  #info { font-size: 24px; line-height: 1.6; margin-bottom: 12px; }
+  #why { font-size: 20px; background: rgba(0, 0, 0, .2); padding: 8px 14px; border-radius: 10px; margin-bottom: 28px; }
+  #why:empty { display: none; }
+  #againBtn { font-size: 24px; font-weight: bold; padding: 22px 36px; width: 100%; max-width: 360px; border: 3px solid #fff; border-radius: 18px; background: transparent; color: #fff; }
+  #code { font-size: 12px; opacity: .7; margin-top: 16px; }
+</style>
+</head>
+<body>
+<div id="main">
+  <h1>🌸 會員掃描報到</h1>
+  <div id="status">載入中…</div>
+  <button id="scanBtn" disabled>📷 掃描會員條碼</button>
+</div>
+<div id="result">
+  <div id="big"></div>
+  <div id="info"></div>
+  <div id="why"></div>
+  <button id="againBtn">📷 繼續掃描</button>
+  <div id="code"></div>
+</div>
+
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script>
+// 設定：LIFF ID 與 GAS 網址（部署時填）
+const LIFF_ID = '__LIFF_ID__';
+const GAS_URL = '__GAS_URL__';
+
+const $ = (id) => document.getElementById(id);
+const status = (s) => { $('status').textContent = s; };
+
+function env() {
+  let os = '', line = '', liffVer = '';
+  try { os = liff.getOS(); line = liff.getLineVersion(); liffVer = liff.getVersion(); } catch (e) {}
+  return { liff: liffVer, os: os, line: line, ua: navigator.userAgent };
+}
+
+function newRid() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+// 呼叫 GAS；網路失敗同一個 rid 自動重試 1 次（GAS 用 rid 去重，不會重複報到）
+async function call(type, data, rid) {
+  const body = Object.assign({ type: type, rid: rid || newRid(), idToken: liff.getIDToken(), env: env() }, data || {});
+  for (let i = 0; i < 2; i++) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 20000);
+    try {
+      const res = await fetch(GAS_URL, { method: 'POST', body: JSON.stringify(body), signal: ctl.signal });
+      clearTimeout(timer);
+      return await res.json();
+    } catch (err) {
+      clearTimeout(timer);
+      if (i === 1) throw err;
+    }
+  }
+}
+
+// 前端錯誤回報後端（LINE 內建瀏覽器看不到 console）
+function report(msg) {
+  try {
+    fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ type: 'client_log', rid: newRid(), idToken: liff.getIDToken(), env: env(), msg: String(msg).slice(0, 1000) }) });
+  } catch (e) {}
+}
+window.addEventListener('error', (e) => report('程式錯誤：' + e.message + ' @' + e.filename + ':' + e.lineno));
+
+function show(kind, big, info, why, code) {
+  $('result').className = kind;
+  $('big').textContent = big;
+  $('info').innerHTML = info || '';
+  $('why').textContent = why || '';
+  $('code').textContent = code ? '代碼 ' + code : '';
+  if (navigator.vibrate) navigator.vibrate(kind === 'welcome' ? 80 : [200, 100, 200]);
+}
+
+const esc = (s) => String(s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+async function scan() {
+  let value = '';
+  try {
+    const r = await liff.scanCodeV2();
+    value = (r && r.value) || '';
+  } catch (err) {
+    report('scanCodeV2 失敗：' + err);
+    status('無法開啟相機：' + (err.message || err));
+    return;
+  }
+  if (!value) return; // 使用者按取消
+  const rid = newRid();
+  show('wait', '查詢中…', '', '', '');
+  try {
+    const out = await call('checkin', { code: value }, rid);
+    if (out.ok) {
+      const m = out.member;
+      const info = m ? esc(m.n) + '<br>會員編號：' + esc(m.id) + '<br>' + esc(m.t) + (m.c ? '<br>' + esc(m.c) : '') : '';
+      if (out.result === 'welcome') show('welcome', '歡迎', info, '', '');
+      else show('manual', '專人處理', info, out.reason, rid);
+    } else if (out.error === 'token') {
+      liff.logout(); liff.login(); // 登入過期 → 重新登入
+    } else if (out.error === 'not_staff') {
+      show('manual', '專人處理', '', '您不在現場人員名單，無法掃描', rid);
+    } else {
+      show('manual', '專人處理', '', '系統錯誤，請再掃一次', rid);
+    }
+  } catch (err) {
+    report('報到請求失敗：' + err);
+    show('manual', '專人處理', '', '網路連線失敗，請再掃一次', rid);
+  }
+}
+
+$('scanBtn').onclick = scan;
+$('againBtn').onclick = () => { $('result').className = ''; scan(); };
+
+(async () => {
+  try {
+    await liff.init({ liffId: LIFF_ID });
+  } catch (err) {
+    status('載入失敗，請關掉重開：' + (err.message || err));
+    report('liff.init 失敗：' + err);
+    return;
+  }
+  if (!liff.isLoggedIn()) { liff.login(); return; }
+  if (!liff.isInClient()) { status('請在手機 LINE 裡開啟這個頁面'); return; }
+  status('確認身分中…');
+  try {
+    const out = await call('staff_check');
+    if (out.error === 'token') { liff.logout(); liff.login(); return; }
+    if (!out.staff) { status('您不在現場人員名單，請洽管理者開通'); return; }
+  } catch (err) {
+    report('身分確認失敗：' + err);
+    status('網路連線失敗，請關掉重開');
+    return;
+  }
+  status('按下按鈕開始掃描');
+  $('scanBtn').disabled = false;
+})();
+</script>
+</body>
+</html>
