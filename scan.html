@@ -114,22 +114,22 @@ async function checkin(value) {
         buzz(true);
       } else {
         // 格式（使用者 2026-10-29 指定）：原因／姓名｜編號｜類別；有會員資料就不顯示代碼（代碼仍記在報到紀錄）
-        panel('manual', '❌ 專人處理', out.reason, m ? [m.n, m.id, m.t].join('｜') : '代碼 ' + rid);
+        panel('manual', '❌ 專人協助', out.reason, m ? [m.n, m.id, m.t].join('｜') : '代碼 ' + rid);
         buzz(false);
       }
     } else if (out.error === 'token') {
       liff.logout(); liff.login(); // 登入過期 → 重新登入
       return;
     } else if (out.error === 'not_staff') {
-      panel('manual', '❌ 專人處理', '您不在現場人員名單，無法掃描', '代碼 ' + rid);
+      panel('manual', '❌ 專人協助', '您不在現場人員名單，無法掃描', '代碼 ' + rid);
       buzz(false);
     } else {
-      panel('manual', '❌ 專人處理', '系統錯誤，請再掃一次', '代碼 ' + rid);
+      panel('manual', '❌ 專人協助', '系統錯誤，請再掃一次', '代碼 ' + rid);
       buzz(false);
     }
   } catch (err) {
     report('報到請求失敗：' + err);
-    panel('manual', '❌ 專人處理', '網路連線失敗，請再掃一次', '代碼 ' + rid);
+    panel('manual', '❌ 專人協助', '網路連線失敗，請再掃一次', '代碼 ' + rid);
     buzz(false);
   }
   if (useLine) { $('startBtn').textContent = '📷 掃描下一位'; $('startBtn').hidden = false; }
