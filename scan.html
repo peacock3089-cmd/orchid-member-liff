@@ -105,7 +105,11 @@ async function checkin(value) {
     if (out.ok) {
       const m = out.member;
       const who = m ? [m.id, m.t, m.c].filter(Boolean).join('｜') : '';
-      if (out.result === 'welcome') {
+      if (out.result === 'busy') {
+        // 太多人同時掃 → 請再掃一次；清掉「剛掃過」記號，同一張可以馬上重掃
+        panel('wait', '⏳ 忙碌中', '請再掃一次', '');
+        lastCode = '';
+      } else if (out.result === 'welcome') {
         panel('welcome', '✅ 歡迎　' + (m ? m.n : ''), who, '');
         buzz(true);
       } else {
